@@ -1,0 +1,455 @@
+#!/bin/sh
+
+# ==============================================================================
+# Configuration Defaults
+# ==============================================================================
+REMOTE_NAME="onedrive"
+REMOTE_PATH="lfs"
+LOCAL_DIR="$HOME/lfs"
+
+# ==============================================================================
+# Utility & Help Functions
+# ==============================================================================
+
+check_deps() {
+    if ! command -v rclone >/dev/null 2>&1; then
+        echo "Error: 'rclone' is not installed or not in PATH."
+        exit 1
+    fi
+}
+
+update_paths() {
+    REMOTE="${REMOTE_NAME}:${REMOTE_PATH}"
+    LOCAL="${LOCAL_DIR}"
+    # Ensure the local directory (default or overridden) exists
+    mkdir -p "$LOCAL"
+}
+
+global_usage() {
+    echo "Usage: $(basename "$0") <command> [options]"
+    echo ""
+    echo "Commands:"
+    echo "  push             Sync local directory TO OneDrive"
+    echo "  pull             Sync OneDrive TO local directory"
+    echo "  sync             Two-way sync (merges changes from both sides)"
+    echo "  watch            Runs 'sync' continuously in a loop"
+    echo "  install-service  Sets up a Linux systemd background service/timer"
+    echo ""
+    echo "Run '$(basename "$0") <command> --help' for command-specific options."
+}
+
+print_path_options() {
+    echo "  -R, --remote-name <name>  Override the rclone remote name (default: $REMOTE_NAME)"
+    echo "  -P, --remote-path <path>  Override the remote folder path (default: $REMOTE_PATH)"
+    echo "  -L, --local-dir <dir>     Override the local sync directory (default: ~/lfs)"
+}
+
+push_usage() {
+    echo "Usage: $(basename "$0") push [options]"
+    echo "Syncs changes from the local directory up to OneDrive."
+    echo ""
+    echo "Options:"
+    echo "  -f, --force               Allow removals. Deletes files on OneDrive."
+    echo "  -n, --dry-run             Show what would be transferred/deleted."
+    print_path_options
+    echo "  -h, --help                Show this help message."
+}
+
+pull_usage() {
+    echo "Usage: $(basename "$0") pull [options]"
+    echo "Syncs changes from OneDrive down to the local directory."
+    echo ""
+    echo "Options:"
+    echo "  -f, --force               Allow removals. Deletes local files."
+    echo "  -n, --dry-run             Show what would be transferred/deleted."
+    print_path_options
+    echo "  -h, --help                Show this help message."
+}
+
+sync_usage() {
+    echo "Usage: $(basename "$0") sync [options]"
+    echo "Performs a two-way sync, mirroring additions and deletions both ways."
+    echo ""
+    echo "Options:"
+    echo "  -a, --abort-on-conflict   Pre-checks for sync conflicts and aborts if found."
+    echo "  --resync                  Required for the VERY FIRST run of 'sync'."
+    echo "  -n, --dry-run             Show expected two-way changes without doing it."
+    print_path_options
+    echo "  -h, --help                Show this help message."
+}
+
+watch_usage() {
+    echo "Usage: $(basename "$0") watch [options]"
+    echo "Runs the 'sync' command continuously in a loop."
+    echo ""
+    echo "Options:"
+    echo "  -i, --interval <sec>      Seconds to wait between syncs (default: 300)"
+    echo "  -a, --abort-on-conflict   Stop the watch loop if a conflict is detected."
+    print_path_options
+    echo "  -h, --help                Show this help message."
+}
+
+install_service_usage() {
+    echo "Usage: $(basename "$0") install-service [options]"
+    echo "Generates a systemd user timer that runs the sync automatically in the background."
+    echo ""
+    echo "Options:"
+    print_path_options
+    echo "  -h, --help                Show this help message."
+}
+
+# ==============================================================================
+# Command Functions
+# ==============================================================================
+
+cmd_push() {
+    FORCE=0
+    DRY_RUN=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        -f | --force) FORCE=1 ;;
+        -n | --dry-run) DRY_RUN="--dry-run" ;;
+        -R | --remote-name)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            REMOTE_NAME="$2"
+            shift
+            ;;
+        -P | --remote-path)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            REMOTE_PATH="$2"
+            shift
+            ;;
+        -L | --local-dir)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            LOCAL_DIR="$2"
+            shift
+            ;;
+        -h | --help)
+            push_usage
+            exit 0
+            ;;
+        -*)
+            echo "Error: Unknown option '$1' for 'push'"
+            exit 1
+            ;;
+        *)
+            echo "Error: Unexpected argument '$1'"
+            exit 1
+            ;;
+        esac
+        shift
+    done
+
+    update_paths
+
+    echo "Pushing local changes to OneDrive ($REMOTE)..."
+    if [ "$FORCE" -eq 1 ]; then
+        echo "FORCE MODE: Removals allowed. Missing files will be deleted on destination."
+        rclone sync -P $DRY_RUN "$LOCAL" "$REMOTE"
+    else
+        echo "SAFE MODE: Copying only. No files will be deleted. Use --force to mirror removals."
+        rclone copy -P $DRY_RUN "$LOCAL" "$REMOTE"
+    fi
+}
+
+cmd_pull() {
+    FORCE=0
+    DRY_RUN=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        -f | --force) FORCE=1 ;;
+        -n | --dry-run) DRY_RUN="--dry-run" ;;
+        -R | --remote-name)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            REMOTE_NAME="$2"
+            shift
+            ;;
+        -P | --remote-path)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            REMOTE_PATH="$2"
+            shift
+            ;;
+        -L | --local-dir)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            LOCAL_DIR="$2"
+            shift
+            ;;
+        -h | --help)
+            pull_usage
+            exit 0
+            ;;
+        -*)
+            echo "Error: Unknown option '$1' for 'pull'"
+            exit 1
+            ;;
+        *)
+            echo "Error: Unexpected argument '$1'"
+            exit 1
+            ;;
+        esac
+        shift
+    done
+
+    update_paths
+
+    echo "Pulling changes from OneDrive ($REMOTE) to local..."
+    if [ "$FORCE" -eq 1 ]; then
+        echo "FORCE MODE: Removals allowed. Missing files will be deleted on destination."
+        rclone sync -P $DRY_RUN "$REMOTE" "$LOCAL"
+    else
+        echo "SAFE MODE: Copying only. No files will be deleted. Use --force to mirror removals."
+        rclone copy -P $DRY_RUN "$REMOTE" "$LOCAL"
+    fi
+}
+
+cmd_sync() {
+    RESYNC=""
+    DRY_RUN=""
+    ABORT_ON_CONFLICT=0
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        -a | --abort-on-conflict) ABORT_ON_CONFLICT=1 ;;
+        --resync) RESYNC="--resync" ;;
+        -n | --dry-run) DRY_RUN="--dry-run" ;;
+        -R | --remote-name)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            REMOTE_NAME="$2"
+            shift
+            ;;
+        -P | --remote-path)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            REMOTE_PATH="$2"
+            shift
+            ;;
+        -L | --local-dir)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            LOCAL_DIR="$2"
+            shift
+            ;;
+        -h | --help)
+            sync_usage
+            exit 0
+            ;;
+        -*)
+            echo "Error: Unknown option '$1' for 'sync'"
+            exit 1
+            ;;
+        *)
+            echo "Error: Unexpected argument '$1'"
+            exit 1
+            ;;
+        esac
+        shift
+    done
+
+    update_paths
+
+    # Pre-flight Conflict Check
+    if [ "$ABORT_ON_CONFLICT" -eq 1 ] && [ -z "$DRY_RUN" ] && [ -z "$RESYNC" ]; then
+        echo "Performing pre-sync conflict check..."
+        DRY_RUN_OUT=$(rclone bisync "$LOCAL" "$REMOTE" --create-empty-src-dirs --compare size,modtime,checksum --dry-run 2>&1)
+
+        if echo "$DRY_RUN_OUT" | grep -qi "sync conflict"; then
+            echo "Error: sync conflict detected!"
+            echo ""
+            echo "To fix this:"
+            echo "1. Run '$(basename "$0") sync --dry-run' to see which files conflict."
+            echo "2. Manually resolve the files, or run without '--abort-on-conflict'"
+            echo "   to let rclone keep both versions."
+            exit 1
+        else
+            echo "No conflicts detected. Proceeding with actual sync..."
+        fi
+    fi
+
+    # Actual Sync
+    echo "Performing bidirectional sync..."
+    if [ -n "$DRY_RUN" ]; then echo "DRY RUN: Showing expected two-way changes..."; fi
+    if [ -n "$RESYNC" ]; then echo "RESYNC MODE: Forcing initial or recovery two-way sync."; fi
+
+    rclone bisync "$LOCAL" "$REMOTE" --create-empty-src-dirs --compare size,modtime,checksum $RESYNC $DRY_RUN -P
+}
+
+cmd_watch() {
+    INTERVAL=300
+    SYNC_ARGS=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        -i | --interval)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            INTERVAL="$2"
+            shift
+            ;;
+        -a | --abort-on-conflict) SYNC_ARGS="--abort-on-conflict" ;;
+        -R | --remote-name)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            REMOTE_NAME="$2"
+            shift
+            ;;
+        -P | --remote-path)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            REMOTE_PATH="$2"
+            shift
+            ;;
+        -L | --local-dir)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            LOCAL_DIR="$2"
+            shift
+            ;;
+        -h | --help)
+            watch_usage
+            exit 0
+            ;;
+        -*)
+            echo "Error: Unknown option '$1' for 'watch'"
+            exit 1
+            ;;
+        *)
+            echo "Error: Unexpected argument '$1'."
+            exit 1
+            ;;
+        esac
+        shift
+    done
+
+    update_paths
+
+    echo "Starting continuous sync every $INTERVAL seconds..."
+    echo "Paths: Local ($LOCAL) <--> Remote ($REMOTE)"
+
+    while true; do
+        echo "----------------------------------------"
+        echo "Syncing at $(date)..."
+
+        # Call the script itself to run the sync command with the captured paths
+        "$0" sync -R "$REMOTE_NAME" -P "$REMOTE_PATH" -L "$LOCAL_DIR" $SYNC_ARGS
+
+        if [ $? -ne 0 ]; then
+            echo "Sync failed or aborted! Stopping watch mode."
+            exit 1
+        fi
+
+        echo "Sleeping for $INTERVAL seconds..."
+        sleep "$INTERVAL"
+    done
+}
+
+cmd_install_service() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        -R | --remote-name)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            REMOTE_NAME="$2"
+            shift
+            ;;
+        -P | --remote-path)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            REMOTE_PATH="$2"
+            shift
+            ;;
+        -L | --local-dir)
+            [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1
+            LOCAL_DIR="$2"
+            shift
+            ;;
+        -h | --help)
+            install_service_usage
+            exit 0
+            ;;
+        -*)
+            echo "Error: Unknown option '$1' for 'install-service'"
+            exit 1
+            ;;
+        *)
+            echo "Error: Unexpected argument '$1'."
+            exit 1
+            ;;
+        esac
+        shift
+    done
+
+    update_paths
+
+    if ! command -v systemctl >/dev/null 2>&1; then
+        echo "Error: 'systemctl' not found. This command requires systemd (standard on Linux)."
+        exit 1
+    fi
+
+    SCRIPT_PATH=$(realpath "$0")
+    SERVICE_DIR="$HOME/.config/systemd/user"
+
+    mkdir -p "$SERVICE_DIR"
+
+    echo "Creating systemd service and timer in $SERVICE_DIR..."
+    echo "Locked configuration: Local ($LOCAL) <--> Remote ($REMOTE)"
+
+    # Create the Service file, injecting the evaluated path variables
+    # so the service always remembers your overrides.
+    cat <<EOF >"$SERVICE_DIR/lfs.service"
+[Unit]
+Description=OneDrive Bidirectional Sync
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$SCRIPT_PATH sync -R "$REMOTE_NAME" -P "$REMOTE_PATH" -L "$LOCAL_DIR"
+EOF
+
+    # Create the Timer file
+    cat <<EOF >"$SERVICE_DIR/lfs.timer"
+[Unit]
+Description=Run OneDrive Sync every 5 minutes
+
+[Timer]
+OnBootSec=1m
+OnUnitActiveSec=5m
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    systemctl --user daemon-reload
+    systemctl --user enable --now lfs.timer
+
+    echo "Background service successfully installed and started!"
+    echo ""
+    echo "To check its status:   systemctl --user status lfs.timer"
+    echo "To view sync logs:     journalctl --user -u lfs.service"
+    echo "To stop it entirely:   systemctl --user disable --now lfs.timer"
+}
+
+# ==============================================================================
+# Main Dispatcher
+# ==============================================================================
+
+check_deps
+
+if [ $# -eq 0 ]; then
+    global_usage
+    exit 1
+fi
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+push) cmd_push "$@" ;;
+pull) cmd_pull "$@" ;;
+sync) cmd_sync "$@" ;;
+watch) cmd_watch "$@" ;;
+install-service) cmd_install_service "$@" ;;
+-h | --help)
+    global_usage
+    exit 0
+    ;;
+*)
+    echo "Error: Unknown command '$COMMAND'"
+    echo ""
+    global_usage
+    exit 1
+    ;;
+esac
