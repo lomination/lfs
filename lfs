@@ -6,7 +6,7 @@
 REMOTE_NAME="onedrive"
 REMOTE_PATH="lfs"
 LOCAL_DIR="$HOME/lfs"
-EXCLUDES="--exclude-if-present .git --exclude-if-present pyvenv.cfg"
+EXCLUDES='--exclude ".git/**" --exclude-if-present pyvenv.cfg'
 
 # ==============================================================================
 # Utility & Help Functions
