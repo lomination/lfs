@@ -147,10 +147,10 @@ cmd_push() {
     echo "Pushing local changes to OneDrive ($REMOTE)..."
     if [ "$FORCE" -eq 1 ]; then
         echo "FORCE MODE: Removals allowed. Missing files will be deleted on destination."
-        rclone sync $EXCLUDES -P $DRY_RUN "$LOCAL" "$REMOTE"
+        rclone sync --exclude ".git/**" --exclude-if-present pyvenv.cfg -P $DRY_RUN "$LOCAL" "$REMOTE"
     else
         echo "SAFE MODE: Copying only. No files will be deleted. Use --force to mirror removals."
-        rclone copy $EXCLUDES -P $DRY_RUN "$LOCAL" "$REMOTE"
+        rclone copy --exclude ".git/**" --exclude-if-present pyvenv.cfg -P $DRY_RUN "$LOCAL" "$REMOTE"
     fi
 }
 
@@ -198,10 +198,10 @@ cmd_pull() {
     echo "Pulling changes from OneDrive ($REMOTE) to local..."
     if [ "$FORCE" -eq 1 ]; then
         echo "FORCE MODE: Removals allowed. Missing files will be deleted on destination."
-        rclone sync $EXCLUDES -P $DRY_RUN "$REMOTE" "$LOCAL"
+        rclone sync --exclude ".git/**" --exclude-if-present pyvenv.cfg -P $DRY_RUN "$REMOTE" "$LOCAL"
     else
         echo "SAFE MODE: Copying only. No files will be deleted. Use --force to mirror removals."
-        rclone copy $EXCLUDES -P $DRY_RUN "$REMOTE" "$LOCAL"
+        rclone copy --exclude ".git/**" --exclude-if-present pyvenv.cfg -P $DRY_RUN "$REMOTE" "$LOCAL"
     fi
 }
 
@@ -251,7 +251,7 @@ cmd_sync() {
     # Pre-flight Conflict Check
     if [ "$ABORT_ON_CONFLICT" -eq 1 ] && [ -z "$DRY_RUN" ] && [ -z "$RESYNC" ]; then
         echo "Performing pre-sync conflict check..."
-        DRY_RUN_OUT=$(rclone bisync "$LOCAL" "$REMOTE" $EXCLUDES --create-empty-src-dirs --compare size,modtime,checksum --dry-run 2>&1)
+        DRY_RUN_OUT=$(rclone bisync "$LOCAL" "$REMOTE" --exclude ".git/**" --exclude-if-present pyvenv.cfg --create-empty-src-dirs --compare size,modtime,checksum --dry-run 2>&1)
 
         if echo "$DRY_RUN_OUT" | grep -qi "sync conflict"; then
             echo "Error: sync conflict detected!"
@@ -271,7 +271,7 @@ cmd_sync() {
     if [ -n "$DRY_RUN" ]; then echo "DRY RUN: Showing expected two-way changes..."; fi
     if [ -n "$RESYNC" ]; then echo "RESYNC MODE: Forcing initial or recovery two-way sync."; fi
 
-    rclone bisync "$LOCAL" "$REMOTE" $EXCLUDES --create-empty-src-dirs --compare size,modtime,checksum $RESYNC $DRY_RUN -P
+    rclone bisync "$LOCAL" "$REMOTE" --exclude ".git/**" --exclude-if-present pyvenv.cfg --create-empty-src-dirs --compare size,modtime,checksum $RESYNC $DRY_RUN -P
 }
 
 cmd_watch() {
