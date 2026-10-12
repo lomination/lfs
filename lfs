@@ -10,7 +10,9 @@ LOCAL_DIR="$HOME/lfs"
 # Factorized default options using a bash array
 RCLONE_OPTS=(
     "--fast-list"
+    "--exclude-if-present" ".lfsignore"
     "--exclude" ".git/**"
+    "--exclude" "__pycache__"
     "--exclude-if-present" "pyvenv.cfg"
 )
 
