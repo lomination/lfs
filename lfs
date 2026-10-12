@@ -35,6 +35,7 @@ global_usage() {
     echo "  sync             Two-way sync (merges changes from both sides)"
     echo "  watch            Runs 'sync' continuously in a loop"
     echo "  install-service  Sets up a Linux systemd background service/timer"
+    echo "  status           Compare local and remote to see what differs"
     echo ""
     echo "Run '$(basename "$0") <command> --help' for command-specific options."
 }
@@ -93,6 +94,15 @@ watch_usage() {
 install_service_usage() {
     echo "Usage: $(basename "$0") install-service [options]"
     echo "Generates a systemd user timer that runs the sync automatically in the background."
+    echo ""
+    echo "Options:"
+    print_path_options
+    echo "  -h, --help                Show this help message."
+}
+
+status_usage() {
+    echo "Usage: $(basename "$0") status [options]"
+    echo "Compares the local directory and OneDrive, reporting any differences."
     echo ""
     echo "Options:"
     print_path_options
@@ -251,7 +261,7 @@ cmd_sync() {
     # Pre-flight Conflict Check
     if [ "$ABORT_ON_CONFLICT" -eq 1 ] && [ -z "$DRY_RUN" ] && [ -z "$RESYNC" ]; then
         echo "Performing pre-sync conflict check..."
-        DRY_RUN_OUT=$(rclone bisync "$LOCAL" "$REMOTE" --exclude ".git/**" --exclude-if-present pyvenv.cfg --create-empty-src-dirs --compare size,modtime,checksum --dry-run 2>&1)
+        DRY_RUN_OUT=$(rclone bisync "$LOCAL" "$REMOTE" --exclude ".git/**" --exclude-if-present pyvenv.cfg --create-empty-src-dirs --fast-list --compare size,modtime,checksum --dry-run 2>&1)
 
         if echo "$DRY_RUN_OUT" | grep -qi "sync conflict"; then
             echo "Error: sync conflict detected!"
@@ -271,7 +281,7 @@ cmd_sync() {
     if [ -n "$DRY_RUN" ]; then echo "DRY RUN: Showing expected two-way changes..."; fi
     if [ -n "$RESYNC" ]; then echo "RESYNC MODE: Forcing initial or recovery two-way sync."; fi
 
-    rclone bisync "$LOCAL" "$REMOTE" --exclude ".git/**" --exclude-if-present pyvenv.cfg --create-empty-src-dirs --compare size,modtime,checksum $RESYNC $DRY_RUN -P
+    rclone bisync "$LOCAL" "$REMOTE" --exclude ".git/**" --exclude-if-present pyvenv.cfg --create-empty-src-dirs --fast-list --compare size,modtime,checksum $RESYNC $DRY_RUN -P
 }
 
 cmd_watch() {
@@ -423,6 +433,28 @@ EOF
     echo "To stop it entirely:   systemctl --user disable --now lfs.timer"
 }
 
+cmd_status() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        -R | --remote-name) [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1; REMOTE_NAME="$2"; shift ;;
+        -P | --remote-path) [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1; REMOTE_PATH="$2"; shift ;;
+        -L | --local-dir)   [ -z "$2" ] && echo "Error: $1 requires an argument." && exit 1; LOCAL_DIR="$2"; shift ;;
+        -h | --help) status_usage; exit 0 ;;
+        -*) echo "Error: Unknown option '$1' for 'status'"; exit 1 ;;
+        *) echo "Error: Unexpected argument '$1'"; exit 1 ;;
+        esac
+        shift
+    done
+
+    update_paths
+
+    echo "Comparing local directory ($LOCAL) with OneDrive ($REMOTE)..."
+    echo "This may take a moment as it calculates checksums."
+    echo "----------------------------------------------------------------"
+    
+    rclone check "$LOCAL" "$REMOTE" --exclude ".git/**" --exclude-if-present pyvenv.cfg --fast-list
+}
+
 # ==============================================================================
 # Main Dispatcher
 # ==============================================================================
@@ -443,6 +475,7 @@ pull) cmd_pull "$@" ;;
 sync) cmd_sync "$@" ;;
 watch) cmd_watch "$@" ;;
 install-service) cmd_install_service "$@" ;;
+status)          cmd_status "$@" ;;
 -h | --help)
     global_usage
     exit 0
